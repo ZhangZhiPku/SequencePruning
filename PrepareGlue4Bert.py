@@ -1,6 +1,6 @@
 # Use this script to generate formatted GLUE benchmark data for BERT
-# Make sure your data is stored at ../../data/
-# Converted data will be stored at ../../cache/bert/ make sure that directory exists.
+# Make sure your data is stored at data/
+# Converted data will be stored at cache/bert/ make sure that directory exists.
 
 from transformers import glue_convert_examples_to_features as convert_examples_to_features
 from transformers import glue_output_modes as output_modes

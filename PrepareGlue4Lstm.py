@@ -1,6 +1,6 @@
 # Use this script to generate formatted GLUE benchmark data for LSTM
-# Make sure your data is stored at ../../data/
-# Converted data will be stored at ../../cache/lstm/ make sure that directory exists.
+# Make sure your data is stored at data/
+# Converted data will be stored at cache/lstm/ make sure that directory exists.
 
 import os
 import logging

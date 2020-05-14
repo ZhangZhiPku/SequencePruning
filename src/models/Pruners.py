@@ -148,14 +148,6 @@ class TailCompressionModule(torch.nn.Module):
         super().__init__()
 
     def forward(self, token_sequence, embedding_sequence, compression_rate):
-        """
-        :param embedding_sequence: input embeddings
-        :param token_mask: 0 for padding tokens, 1 for others, will first remove those token with mask value 0
-        :param compression_rate: a 0 - 1 float, indicates a compression rate.
-        :param using_gumble_trick: True for applying Gumble trick, else False.
-        :return: y_hard, y_soft, where y_hard is a 0 or 1 mask vector,
-        and y_soft is float vector indicates each tokens' remove prob
-        """
         token_mask = token_sequence > 0
 
         remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
@@ -179,14 +171,6 @@ class HeadCompressionModule(torch.nn.Module):
         super().__init__()
 
     def forward(self, token_sequence, embedding_sequence, compression_rate):
-        """
-        :param embedding_sequence: input embeddings
-        :param token_mask: 0 for padding tokens, 1 for others, will first remove those token with mask value 0
-        :param compression_rate: a 0 - 1 float, indicates a compression rate.
-        :param using_gumble_trick: True for applying Gumble trick, else False.
-        :return: y_hard, y_soft, where y_hard is a 0 or 1 mask vector,
-        and y_soft is float vector indicates each tokens' remove prob
-        """
         token_mask = token_sequence > 0
         remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
         remain_tokens_num = max(remain_tokens_num, 1)
@@ -207,14 +191,6 @@ class RandomCompressionModule(torch.nn.Module):
         super().__init__()
 
     def forward(self, token_sequence, embedding_sequence, compression_rate):
-        """
-        :param embedding_sequence: input embeddings
-        :param token_mask: 0 for padding tokens, 1 for others, will first remove those token with mask value 0
-        :param compression_rate: a 0 - 1 float, indicates a compression rate.
-        :param using_gumble_trick: True for applying Gumble trick, else False.
-        :return: y_hard, y_soft, where y_hard is a 0 or 1 mask vector,
-        and y_soft is float vector indicates each tokens' remove prob
-        """
         token_mask = token_sequence > 0
         remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
         remain_tokens_num = max(remain_tokens_num, 1)
