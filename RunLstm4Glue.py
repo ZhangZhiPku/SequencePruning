@@ -104,6 +104,7 @@ def train(model, num_of_epoch, batchsize, dataset, recorder,
 
             loss = loss_fn(pred_logits, label_sequence)
 
+            model.zero_grad()
             loss.backward()
             loss_value = extract_loss_value(loss)
 
@@ -186,7 +187,7 @@ def eval_with_seqlen(
 
 def main():
     task_names = ['sst-2', 'mrpc', 'qqp', 'mnli']
-    pruning_methods = ['frequency', 'head', 'random', 'lstm']
+    pruning_methods = ['lstm']
     target_prune_rate = 0.9
 
     for task_name in task_names:
@@ -213,6 +214,7 @@ def main():
             training_recorder = defaultdict(list)
             evaluation_recorder = defaultdict(list)
 
+            model.train()
             train(
                 model=model,
                 num_of_epoch=3,
@@ -223,6 +225,7 @@ def main():
                 pruning_rate_end=target_prune_rate
             )
 
+            model.eval()
             eval(
                 model=model,
                 batchsize=256 if task_name is not 'mrpc' else 64,

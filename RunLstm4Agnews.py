@@ -98,6 +98,7 @@ def train(model, num_of_epoch, batchsize, dataset, recorder,
                 pruning_rate=pruning_rate
             )
 
+            model.zero_grad()
             loss = loss_fn(pred_sequence, label_sequence)
             loss.backward()
             loss_value = extract_loss_value(loss)
