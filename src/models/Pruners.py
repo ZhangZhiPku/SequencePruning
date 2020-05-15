@@ -25,10 +25,10 @@ def select_k(y_soft: torch.Tensor, k, keep_first_unit=False):
     return y_hard
 
 
-class DensePruner(torch.nn.Module):
+class BERTStudentPruner(torch.nn.Module):
 
     def __init__(self, input_units):
-        super(DensePruner, self).__init__()
+        super(BERTStudentPruner, self).__init__()
 
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(in_features=input_units, out_features=input_units),
@@ -49,17 +49,46 @@ class DensePruner(torch.nn.Module):
         return y_hard, y_soft
 
 
+class LSTMStudentPruner(torch.nn.Module):
+
+    def __init__(self, input_units):
+        super(LSTMStudentPruner, self).__init__()
+
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(in_features=input_units, out_features=1),
+            torch.nn.Sigmoid()
+        )
+
+    def forward(self, inputs, compression_rate):
+        remain_tokens_num = int(inputs.size()[1] * (1 - compression_rate))
+
+        # remain tokens num must be positive.
+        remain_tokens_num = max(remain_tokens_num, 1)
+
+        y_soft = self.fc(inputs).squeeze(-1)
+        y_hard = select_k(y_soft, remain_tokens_num)
+        return y_hard, y_soft
+
+
 class TeacherPruner(torch.nn.Module):
 
-    def __init__(self, input_units=768):
+    def __init__(self, use_teacher_output=True):
         super(TeacherPruner, self).__init__()
 
-        self.student = DensePruner(input_units=input_units)
+        self.student = None
+        self.student_optimizer = None
+        self.student_loss = None
+        self.use_teacher_output = use_teacher_output
+
+    def register_student_model(self, student):
+        self.student = student
         self.student_optimizer = \
             torch.optim.Adam(params=self.student.parameters(), lr=1e-3)
-        self.loss = torch.nn.MSELoss()
+        self.student_loss = torch.nn.MSELoss()
 
     def train_student(self, inputs, expected_out, normalize_dim=1):
+        if self.student is None:
+            raise Exception('No available student model.')
         _, pred_out = self.student.forward(inputs=inputs, compression_rate=0)
 
         # normalize output
@@ -68,7 +97,7 @@ class TeacherPruner(torch.nn.Module):
         expected_out = (expected_out - expected_out.mean(dim=normalize_dim, keepdim=True)) / \
                    expected_out.std(dim=normalize_dim, keepdim=True)
 
-        loss = self.loss(pred_out, expected_out)
+        loss = self.student_loss(pred_out, expected_out)
         loss.backward(retain_graph=True)
         self.student_optimizer.step()
         self.student_optimizer.zero_grad()
@@ -79,7 +108,7 @@ class TeacherPruner(torch.nn.Module):
         )
 
 
-class LSTMSelfCompressionModule(torch.nn.Module):
+class LSTMSelfCompressionModule(TeacherPruner):
 
     def __init__(self, lstm_module: torch.nn.LSTM):
         super(LSTMSelfCompressionModule, self).__init__()
@@ -87,6 +116,8 @@ class LSTMSelfCompressionModule(torch.nn.Module):
 
         self.input_size = lstm_module.input_size
         self.hidden_size = lstm_module.hidden_size
+
+        self.register_student_model(LSTMStudentPruner(300))
 
     def cal_soft_logits(self, token_sequence, embedding_sequence):
         padding_mask = (token_sequence == 0)
@@ -131,15 +162,25 @@ class LSTMSelfCompressionModule(torch.nn.Module):
         return compression_logits, hs
 
     def forward(self, ts, es, compression_rate=0.5):
-        soft_mask, hs = self.cal_soft_logits(ts, es)
+        if self.use_teacher_output:
+            soft_mask, hs = self.cal_soft_logits(ts, es)
 
-        remain_tokens_num = int(ts.size()[1] * (1 - compression_rate))
+            remain_tokens_num = int(ts.size()[1] * (1 - compression_rate))
 
-        # remain tokens num must be positive.
-        remain_tokens_num = max(remain_tokens_num, 1)
+            # remain tokens num must be positive.
+            remain_tokens_num = max(remain_tokens_num, 1)
 
-        y_hard = select_k(soft_mask, remain_tokens_num)
-        return y_hard, soft_mask
+            y_hard = select_k(soft_mask, remain_tokens_num)
+
+            # be careful with following statement.
+            # do not train student model when inferencing.
+            # otherwise it will cause an unexpected error.
+            if self.training:
+                self.train_student(inputs=es, expected_out=soft_mask)
+
+            return y_hard, soft_mask
+        else:
+            return self.student_forward(es, compression_rate)
 
 
 class TailCompressionModule(torch.nn.Module):
@@ -221,52 +262,63 @@ class FrequencyCompressionModule(torch.nn.Module):
 
 class BERTIdealEmissionRateCompressionModule(TeacherPruner):
 
-    def __init__(self, is_teacher=True):
-        self.is_teacher = is_teacher
+    def __init__(self):
         super().__init__()
+        self.register_student_model(BERTStudentPruner(input_units=768))
 
     def forward(self, attentions, embedding_sequence, compression_rate):
-        remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
-        # remain tokens num must be positive.
-        remain_tokens_num = max(remain_tokens_num, 1)
+        if self.use_teacher_output:
+            remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
+            # remain tokens num must be positive.
+            remain_tokens_num = max(remain_tokens_num, 1)
 
-        prod = attentions[0].mean(dim=1)
-        for attention in attentions[1:]:
-            prod *= attention.mean(dim=1)
+            prod = attentions[0].mean(dim=1)
+            for attention in attentions[1:]:
+                prod *= attention.mean(dim=1)
 
-        y_soft = - prod[:, 0, :]
+            y_soft = - prod[:, 0, :]
 
-        y_hard = select_k(y_soft, remain_tokens_num)
+            y_hard = select_k(y_soft, remain_tokens_num)
 
-        if self.is_teacher:
-            self.train_student(
-                inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
-            )
-
-        return y_hard, y_soft
+            # be careful with following statement.
+            # do not train student model when inferencing.
+            # otherwise it will cause an unexpected error.
+            if self.training:
+                self.train_student(
+                    inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
+                )
+            return y_hard, y_soft
+        else:
+            return self.student_forward(embedding_sequence, compression_rate)
 
 
 class IdealGradientCompressionModule(TeacherPruner):
 
-    def __init__(self, is_teacher=True):
-        self.is_teacher = is_teacher
+    def __init__(self):
         super().__init__()
+        self.register_student_model(BERTStudentPruner(input_units=768))
 
     def forward(self, grad, embedding_sequence, compression_rate):
-        remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
-        # remain tokens num must be positive.
-        remain_tokens_num = max(remain_tokens_num, 1)
+        if self.use_teacher_output:
+            remain_tokens_num = int(embedding_sequence.size()[1] * (1 - compression_rate))
+            # remain tokens num must be positive.
+            remain_tokens_num = max(remain_tokens_num, 1)
 
-        y_soft = - grad.abs().mean(dim=-1)
+            y_soft = - grad.abs().mean(dim=-1)
 
-        y_hard = select_k(y_soft, remain_tokens_num)
+            y_hard = select_k(y_soft, remain_tokens_num)
 
-        if self.is_teacher:
-            self.train_student(
-                inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
-            )
+            # be careful with following statement.
+            # do not train student model when inferencing.
+            # otherwise it will cause an unexpected error.
+            if self.training:
+                self.train_student(
+                    inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
+                )
 
-        return y_hard, y_soft
+            return y_hard, y_soft
+        else:
+            return self.student_forward(embedding_sequence, compression_rate)
 
 
 PRUNERS = {

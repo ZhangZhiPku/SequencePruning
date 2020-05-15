@@ -180,7 +180,7 @@ def eval_with_seqlen(
 
 def main():
     task_names = ['agnews']
-    pruning_methods = ['frequency', 'head', 'random', 'lstm']
+    pruning_methods = ['lstm', 'frequency', 'head', 'random']
     target_prune_rate = 0.9
 
     for task_name in task_names:
@@ -209,6 +209,7 @@ def main():
             training_recorder = defaultdict(list)
             evaluation_recorder = defaultdict(list)
 
+            model.train()
             train(
                 model=model,
                 num_of_epoch=3,
@@ -219,6 +220,7 @@ def main():
                 pruning_rate_end=target_prune_rate
             )
 
+            model.eval()
             eval(
                 model=model,
                 batchsize=256,
@@ -236,6 +238,17 @@ def main():
                 recorder=evaluation_recorder,
                 task_name=task_name
             )
+
+            if pruning_method == 'lstm':
+                pruner.use_teacher_output = False
+                eval(
+                    model=model,
+                    batchsize=256,
+                    dataset=DataframeDataset(test_df),
+                    pruning_rate=target_prune_rate,
+                    recorder=evaluation_recorder,
+                    task_name=task_name
+                )
 
             write_record(record_file, training_recorder, evaluation_recorder)
 

@@ -56,13 +56,13 @@ class LSTMClassificationModel(torch.nn.Module):
         hidden_states, _ = self.lstm_module(embedding_sequence)
         return self.fc(hidden_states[:, -1, :])
 
-    def compress(self, ts, es, compression_rate):
-        remaining_units = int(es.size()[1] * (1 - compression_rate))
+    def compress(self, ts, es, pruning_rate):
+        remaining_units = int(es.size()[1] * (1 - pruning_rate))
         # remain units num must be positive.
         remaining_units = max(remaining_units, 1)
 
         selection_mask, _ = self.compression_module.forward(
-            ts, es, compression_rate)
+            ts, es, pruning_rate)
 
         es = es[selection_mask]
         es = es.reshape((-1, remaining_units, self.embedding_layer.embedding_dim))
@@ -78,7 +78,7 @@ class LSTMClassificationModel(torch.nn.Module):
         if pruning_rate > 0:
             if self.compression_module is None:
                 raise Exception('No Compression Module assigned to this model.')
-            es, ts = self.compress(ts=ts, es=es, compression_rate=pruning_rate)
+            es, ts = self.compress(ts=ts, es=es, pruning_rate=pruning_rate)
 
         for lstm_module in self.lstm_modules:
             es, _ = lstm_module(es)
@@ -93,8 +93,8 @@ class LSTMClassificationModel(torch.nn.Module):
         if pruning_rate > 0:
             if self.compression_module is None:
                 raise Exception('No Compression Module assigned to this model.')
-            ea, ta = self.compress(ts=ta, es=ea, compression_rate=pruning_rate)
-            eb, tb = self.compress(ts=tb, es=eb, compression_rate=pruning_rate)
+            ea, ta = self.compress(ts=ta, es=ea, pruning_rate=pruning_rate)
+            eb, tb = self.compress(ts=tb, es=eb, pruning_rate=pruning_rate)
 
         for lstm_module in self.lstm_modules:
             ea, _ = lstm_module(ea)

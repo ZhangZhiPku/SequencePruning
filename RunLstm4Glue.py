@@ -241,6 +241,17 @@ def main():
                 task_name=task_name
             )
 
+            if pruning_method == 'lstm':
+                pruner.use_teacher_output = False
+                eval(
+                    model=model,
+                    batchsize=256 if task_name is not 'mrpc' else 64,
+                    dataset=test_df,
+                    pruning_rate=target_prune_rate,
+                    recorder=evaluation_recorder,
+                    task_name=task_name
+                )
+
             write_record(record_file, training_recorder, evaluation_recorder)
 
 

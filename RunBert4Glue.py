@@ -175,7 +175,6 @@ def main():
 
             pruners = [PRUNERS[pruning_method]().cuda() if pr > 0 else None
                        for pr in pruning_schedule]
-            use_student_pruner = pruning_method in {'ideal gradients'}
 
             record_file = 'records/bert/record of %s(%s)' % (task_name, pruning_method)
             train_file = cache_file_path + task_name + '.train'
@@ -199,9 +198,10 @@ def main():
             training_recorder = defaultdict(list)
             evaluation_recorder = defaultdict(list)
 
+            BERT.train()
             train(
                 BERT=BERT,
-                num_of_epoch=0,
+                num_of_epoch=3,
                 batchsize=32,
                 dataset=train_dataset,
                 recorder=training_recorder,
@@ -210,6 +210,7 @@ def main():
                 pruning_schedule=pruning_schedule,
                 pruners=pruners
             )
+            BERT.eval()
             evaluation(
                 BERT=BERT,
                 batchsize=32,
@@ -221,7 +222,7 @@ def main():
                 pruners=pruners,
                 require_gradients=(pruning_method == 'ideal gradients')
             )
-            if use_student_pruner:
+            if pruning_method == 'ideal gradients':
                 evaluation(
                     BERT=BERT,
                     batchsize=32,
