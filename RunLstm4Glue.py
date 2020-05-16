@@ -187,7 +187,7 @@ def eval_with_seqlen(
 
 def main():
     task_names = ['sst-2', 'mrpc', 'qqp', 'mnli']
-    pruning_methods = ['lstm']
+    pruning_methods = ['lstm', 'random', 'head', 'frequency']
     target_prune_rate = 0.9
 
     for task_name in task_names:
