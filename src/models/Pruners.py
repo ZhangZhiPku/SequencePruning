@@ -10,9 +10,9 @@ def compress(forward_sequence, soft_mask, compression_rate):
     return forward_sequence[hard_mask].reshape((bs, ol - cl, -1))
 
 
-def select_k(y_soft: torch.Tensor, k, keep_first_unit=False):
+def select_k(y_soft: torch.Tensor, k, keep_first_unit=True):
     # if you are using BERT, be sure the first unit is kept.
-    # smaller value will be kept.
+    # smaller value will be kept with this function.
     if keep_first_unit:
         y_soft = y_soft.clone()
         y_soft[:, 0] = y_soft.min() - 1
@@ -35,7 +35,8 @@ class BERTStudentPruner(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(in_features=input_units, out_features=input_units),
             torch.nn.ReLU(),
-            torch.nn.Linear(in_features=input_units, out_features=1)
+            torch.nn.Linear(in_features=input_units, out_features=1),
+            torch.nn.Sigmoid()
         )
 
     def forward(self, inputs, compression_rate):
@@ -55,8 +56,11 @@ class LSTMStudentPruner(torch.nn.Module):
         super(LSTMStudentPruner, self).__init__()
 
         self.fc = torch.nn.Sequential(
-            torch.nn.Linear(in_features=input_units, out_features=1),
-            torch.nn.Sigmoid()
+            torch.nn.Linear(in_features=input_units, out_features=input_units),
+            torch.nn.ReLU(),
+            torch.nn.Linear(in_features=input_units, out_features=input_units),
+            torch.nn.ReLU(),
+            torch.nn.Linear(in_features=input_units, out_features=1)
         )
 
     def forward(self, inputs, compression_rate):
@@ -86,21 +90,28 @@ class TeacherPruner(torch.nn.Module):
             torch.optim.Adam(params=self.student.parameters(), lr=1e-3)
         self.student_loss = torch.nn.MSELoss()
 
-    def train_student(self, inputs, expected_out, normalize_dim=1):
+    def train_student(self, inputs, expected_out, normalize_dim=1,
+                      divide_std=True, clear_grads=True):
+        # Be aware that this function will clear student gradients automatically
+        eps = 1e-7
+
         if self.student is None:
             raise Exception('No available student model.')
         _, pred_out = self.student.forward(inputs=inputs, compression_rate=0)
 
         # normalize output
-        pred_out = (pred_out - pred_out.mean(dim=normalize_dim, keepdim=True)) / \
-                   pred_out.std(dim=normalize_dim, keepdim=True)
-        expected_out = (expected_out - expected_out.mean(dim=normalize_dim, keepdim=True)) / \
-                   expected_out.std(dim=normalize_dim, keepdim=True)
+        pred_out = (pred_out - pred_out.mean(dim=normalize_dim, keepdim=True))
+        expected_out = (expected_out - expected_out.mean(dim=normalize_dim, keepdim=True))
+
+        if divide_std:
+            pred_out = pred_out / (pred_out.std(dim=normalize_dim, keepdim=True) + eps)
+            expected_out = expected_out / (expected_out.std(dim=normalize_dim, keepdim=True) + eps)
 
         loss = self.student_loss(pred_out, expected_out)
         loss.backward(retain_graph=True)
         self.student_optimizer.step()
-        self.student_optimizer.zero_grad()
+        if clear_grads:
+            self.student.zero_grad()
 
     def student_forward(self, inputs, compression_rate):
         return self.student(
@@ -176,7 +187,8 @@ class LSTMSelfCompressionModule(TeacherPruner):
             # do not train student model when inferencing.
             # otherwise it will cause an unexpected error.
             if self.training:
-                self.train_student(inputs=es, expected_out=soft_mask)
+                self.train_student(inputs=es, expected_out=soft_mask, divide_std=False)
+                # self.zero_grad()
 
             return y_hard, soft_mask
         else:
@@ -287,6 +299,8 @@ class BERTIdealEmissionRateCompressionModule(TeacherPruner):
                 self.train_student(
                     inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
                 )
+                self.zero_grad()
+
             return y_hard, y_soft
         else:
             return self.student_forward(embedding_sequence, compression_rate)
@@ -315,6 +329,7 @@ class IdealGradientCompressionModule(TeacherPruner):
                 self.train_student(
                     inputs=embedding_sequence, expected_out=y_soft, normalize_dim=1
                 )
+                self.zero_grad()
 
             return y_hard, y_soft
         else:
