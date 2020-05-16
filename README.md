@@ -5,3 +5,5 @@
 # How to use?
 <p>Deatil instruction can be found in Instruction.pdf</p>
 <p>本品无毒无害不可食用，使用说明请参阅Instruction.pdf</p>
+
+<p>Download data from http://www.mediafire.com/file/w8ug8zs92ddjf5d/data.rar/file</p>
